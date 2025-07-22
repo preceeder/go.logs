@@ -3,7 +3,7 @@ package logs
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/preceeder/go/base"
+	"github.com/preceeder/go.base"
 	"log/slog"
 	"strconv"
 	"strings"

@@ -2,7 +2,7 @@ package logs
 
 import (
 	"context"
-	"github.com/preceeder/go/base"
+	"github.com/preceeder/go.base"
 	"io"
 	"log/slog"
 )
