@@ -17,7 +17,7 @@ func NewMoreHandler(w []Config, opts *slog.HandlerOptions) *MoreHandler {
 		opts = &slog.HandlerOptions{}
 	}
 
-	minLevel := w[0].LogLevel
+	minLevel := w[len(w)-1].LogLevel
 	handler := MoreHandler{MinLevel: minLevel, MHandler: []Config{}}
 	for _, wl := range w {
 		if wl.OutType == "json" || wl.OutType == "" {
@@ -51,7 +51,7 @@ func (h *MoreHandler) Handle(c context.Context, r slog.Record) error {
 		r.Add("USERID", vc.GetUserId())
 	}
 	for _, handler := range h.MHandler {
-		if handler.LogLevel < r.Level {
+		if handler.LogLevel > r.Level {
 			continue
 		}
 

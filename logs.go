@@ -17,7 +17,7 @@ type Config struct {
 	RotateTime              string       `json:"rotateTime"`              // 日志轮转 每天的特定时间点  12:00:00, MaxSize 有值的时候达到MaxSize限制也会轮转
 	MaxAge                  int          `json:"maxAge"`                  // 历史日志保存的最大时间 天
 	MaxBackups              int          `json:"maxBackups"`              // 保存的 历史日志数量
-	TransparentTransmission bool         `json:"transparentTransmission"` // 日志输出是否传递到高等级等级  level 越小等级越高, ErrorFileName 日志可以写入到 WarnFileName|InfoFileName|DebugFileName
+	TransparentTransmission bool         `json:"transparentTransmission"` // 和slog.Level的值是相反的，日志输出是否传递到高等级  level 越小等级越高, ErrorFileName 日志可以写入到 WarnFileName|InfoFileName|DebugFileName
 	StdOut                  bool         `json:"stdOut"`                  // 是否在终端输出   0 不输出, 1 输出
 	Compress                bool         `json:"compress"`                // 备份的日志是否压缩
 	OutType                 string       `json:"outType"`                 // json, txt    输出格式， 默认json
@@ -96,10 +96,10 @@ func getIoWriter(cfg *SlogConfig) []Config {
 	}
 	slices.SortFunc(iohandler, func(a, b Config) int {
 		if a.LogLevel < b.LogLevel {
-			return -1
+			return 1
 		}
 		if a.LogLevel > b.LogLevel {
-			return 1
+			return -1
 		}
 		return 0
 	})

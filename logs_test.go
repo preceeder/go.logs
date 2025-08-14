@@ -69,8 +69,8 @@ func TestLogs(t *testing.T) {
 	//i := 1000
 	//j := 0
 	ctx := base.Context{RequestId: "sdsd"}
-	slog.InfoContext(ctx, "sds")
-	time.Sleep(time.Second * 100)
+	slog.ErrorContext(ctx, "sds")
+	//time.Sleep(time.Second * 100)
 	marshal, _ := json.Marshal(map[string]any{"Name": "ois", "Age": 23})
 	de := Dar(marshal)
 	slog.InfoContext(ctx, "", "data", de)
