@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 type Dar string
@@ -16,17 +17,99 @@ func (d Dar) MarshalJSON() ([]byte, error) {
 	return []byte(d), nil
 }
 
+func TestLou(t *testing.T) {
+	tm := time.NewTimer(time.Second * 5)
+	for {
+		select {
+		case <-tm.C:
+			fmt.Println("timed on")
+		}
+		fmt.Println(tm.Reset(time.Second * 5))
+	}
+}
+
+func TestLogs(t *testing.T) {
+	cfg := SlogConfig{
+		Config: []Config{
+			{
+				FileName:                "logs/error.log",
+				LogLevel:                slog.LevelError,
+				TransparentTransmission: true,
+				StdOut:                  true,
+				MaxSize:                 1,
+				MaxAge:                  3,
+				MaxBackups:              4,
+				RotateTime:              "15:19:00",
+			},
+			{
+				FileName:                "logs/info.log",
+				LogLevel:                slog.LevelInfo,
+				OutType:                 "txt",
+				TransparentTransmission: true,
+				StdOut:                  false,
+				MaxSize:                 1,
+				MaxAge:                  3,
+				MaxBackups:              4,
+				RotateTime:              "15:22:00",
+			},
+			{
+				FileName:                "logs/warn.log",
+				LogLevel:                slog.LevelWarn,
+				TransparentTransmission: false,
+				StdOut:                  true,
+				MaxSize:                 1,
+				MaxAge:                  3,
+				MaxBackups:              4,
+				RotateTime:              "15:24:00",
+			},
+		},
+		NotSetDefaultLog: false,
+	}
+	NewSlog(&cfg)
+	//i := 1000
+	//j := 0
+	ctx := base.Context{RequestId: "sdsd"}
+	slog.InfoContext(ctx, "sds")
+	time.Sleep(time.Second * 100)
+	marshal, _ := json.Marshal(map[string]any{"Name": "ois", "Age": 23})
+	de := Dar(marshal)
+	slog.InfoContext(ctx, "", "data", de)
+}
+
 func BenchmarkTestNewSlog(b *testing.B) {
 	cfg := SlogConfig{
-		ErrorFileName:           "logs/error.log",
-		InfoFileName:            "logs/out.log",
-		TransparentTransmission: true,
-		StdOut:                  "0",
-		MaxSize:                 1,
-		MaxAge:                  3,
-		MaxBackups:              4,
+		Config: []Config{
+			{
+				FileName:                "logs/error.log",
+				LogLevel:                slog.LevelError,
+				TransparentTransmission: true,
+				StdOut:                  true,
+				MaxSize:                 1,
+				MaxAge:                  3,
+				MaxBackups:              4,
+			},
+			{
+				FileName:                "logs/info.log",
+				LogLevel:                slog.LevelInfo,
+				TransparentTransmission: true,
+				StdOut:                  false,
+				MaxSize:                 1,
+				MaxAge:                  3,
+				MaxBackups:              4,
+			},
+			{
+				FileName:                "logs/warn.log",
+				LogLevel:                slog.LevelWarn,
+				TransparentTransmission: false,
+				StdOut:                  true,
+				MaxSize:                 1,
+				MaxAge:                  3,
+				MaxBackups:              4,
+			},
+		},
+		NotSetDefaultLog: false,
 	}
-	NewSlog(cfg)
+	NewSlog(&cfg)
 	//i := 1000
 	//j := 0
 	ctx := base.Context{RequestId: "sdsd"}

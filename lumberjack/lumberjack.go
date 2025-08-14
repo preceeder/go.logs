@@ -1,24 +1,3 @@
-// Package lumberjack provides a rolling logger.
-//
-// Note that this is v2.0 of lumberjack, and should be imported using gopkg.in
-// thusly:
-//
-//	import "gopkg.in/natefinch/lumberjack.v2"
-//
-// The package name remains simply lumberjack, and the code resides at
-// https://github.com/natefinch/lumberjack under the v2.0 branch.
-//
-// Lumberjack is intended to be one part of a logging infrastructure.
-// It is not an all-in-one solution, but instead is a pluggable
-// component at the bottom of the logging stack that simply controls the files
-// to which logs are written.
-//
-// Lumberjack plays well with any logging package that can write to an
-// io.Writer, including the standard library's log package.
-//
-// Lumberjack assumes that only one process is writing to the output files.
-// Using the same lumberjack configuration from multiple processes on the same
-// machine will result in improper behavior.
 package lumberjack
 
 import (
@@ -26,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,47 +22,17 @@ const (
 // ensure we always implement io.WriteCloser
 var _ io.WriteCloser = (*Logger)(nil)
 
-// Logger is an io.WriteCloser that writes to the specified filename.
-//
-// Logger opens or creates the logfile on first Write.  If the file exists and
-// is less than MaxSize megabytes, lumberjack will open and append to that file.
-// If the file exists and its size is >= MaxSize megabytes, the file is renamed
-// by putting the current time in a timestamp in the name immediately before the
-// file's extension (or the end of the filename if there's no extension). A new
-// log file is then created using original filename.
-//
-// Whenever a write would cause the current log file exceed MaxSize megabytes,
-// the current file is closed, renamed, and a new log file created with the
-// original name. Thus, the filename you give Logger is always the "current" log
-// file.
-//
-// Backups use the log file name given to Logger, in the form
-// `name-timestamp.ext` where name is the filename without the extension,
-// timestamp is the time at which the log was rotated formatted with the
-// time.Time format of `2006-01-02T15-04-05.000` and the extension is the
-// original extension.  For example, if your Logger.Filename is
-// `/var/log/foo/server.log`, a backup created at 6:30pm on Nov 11 2016 would
-// use the filename `/var/log/foo/server-2016-11-04T18-30-00.000.log`
-//
-// # Cleaning Up Old Log Files
-//
-// Whenever a new logfile gets created, old log files may be deleted.  The most
-// recent files according to the encoded timestamp will be retained, up to a
-// number equal to MaxBackups (or all of them if MaxBackups is 0).  Any files
-// with an encoded timestamp older than MaxAge days are deleted, regardless of
-// MaxBackups.  Note that the time encoded in the timestamp is the rotation
-// time, which may differ from the last time that file was written to.
-//
-// If MaxBackups and MaxAge are both 0, no old log files will be deleted.
 type Logger struct {
 	// Filename is the file to write logs to.  Backup log files will be retained
 	// in the same directory.  It uses <processname>-lumberjack.log in
 	// os.TempDir() if empty.
 	Filename string `json:"filename" yaml:"filename"`
 
+	RotateTime string `json:"rotatetime" yaml:"rotatetime"` // 轮转时间 "23:00:00"  每天
+
 	// MaxSize is the maximum size in megabytes of the log file before it gets
 	// rotated. It defaults to 100 megabytes.
-	MaxSize int `json:"maxsize" yaml:"maxsize"`
+	MaxSize int `json:"maxsize" yaml:"maxsize"` // -1 就是不限制大小
 
 	// MaxAge is the maximum number of days to retain old log files based on the
 	// timestamp encoded in their filename.  Note that a day is defined as 24
@@ -107,9 +55,10 @@ type Logger struct {
 	// using gzip. The default is not to perform compression.
 	Compress bool `json:"compress" yaml:"compress"`
 
-	size int64
-	file *os.File
-	mu   sync.Mutex
+	maxMbSize int64 // MaxSize -1时 就是-1， 0时就是 100*1024*1024， 大于0时 MaxSize * 1024*1024
+	size      int64
+	file      *os.File
+	mu        sync.Mutex
 
 	millCh    chan bool
 	startMill sync.Once
@@ -128,6 +77,18 @@ var (
 	megabyte = 1024 * 1024
 )
 
+func (l *Logger) Init() {
+	if l.MaxSize == 0 {
+		l.maxMbSize = int64(defaultMaxSize * megabyte)
+	} else if l.MaxSize == -1 {
+		l.maxMbSize = -1
+	} else {
+		l.maxMbSize = int64(l.MaxSize) * int64(megabyte)
+	}
+	go l.timeRotate()
+
+}
+
 // Write implements io.Writer.  If a write would cause the log file to be larger
 // than MaxSize, the file is closed, renamed to include a timestamp of the
 // current time, and a new log file is created using the original log file name.
@@ -137,9 +98,9 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 	defer l.mu.Unlock()
 
 	writeLen := int64(len(p))
-	if writeLen > l.max() {
+	if l.maxMbSize > 0 && writeLen > l.maxMbSize {
 		return 0, fmt.Errorf(
-			"write length %d exceeds maximum file size %d", writeLen, l.max(),
+			"write length %d exceeds maximum file size %d", writeLen, l.maxMbSize,
 		)
 	}
 
@@ -149,7 +110,7 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 		}
 	}
 
-	if l.size+writeLen > l.max() {
+	if l.maxMbSize > 0 && l.size+writeLen > l.maxMbSize {
 		if err := l.rotate(); err != nil {
 			return 0, err
 		}
@@ -273,7 +234,7 @@ func (l *Logger) openExistingOrNew(writeLen int) error {
 		return fmt.Errorf("error getting log file info: %s", err)
 	}
 
-	if info.Size()+int64(writeLen) >= l.max() {
+	if info.Size()+int64(writeLen) >= l.maxMbSize {
 		return l.rotate()
 	}
 
@@ -295,6 +256,36 @@ func (l *Logger) filename() string {
 	}
 	name := filepath.Base(os.Args[0]) + "-lumberjack.log"
 	return filepath.Join(os.TempDir(), name)
+}
+
+// 定时轮转
+func (l *Logger) timeRotate() {
+	if l.RotateTime == "" {
+		return
+	}
+	tm, _ := time.Parse(time.TimeOnly, l.RotateTime)
+	nextDuration := l.nextRatoteDuration(tm)
+	tim := time.NewTimer(nextDuration)
+	for {
+		select {
+		case <-tim.C:
+			if err := l.Rotate(); err != nil {
+			}
+		}
+		tim.Reset(l.nextRatoteDuration(tm))
+	}
+}
+
+func (l *Logger) nextRatoteDuration(runTime time.Time) (nd time.Duration) {
+	now := time.Now()
+	y, m, d := now.Date()
+	nextTime := time.Date(y, m, d, runTime.Hour(), runTime.Minute(), runTime.Second(), runTime.Nanosecond(), time.Local)
+	if now.Before(nextTime) {
+	} else {
+		nextTime = nextTime.AddDate(0, 0, 1)
+	}
+	nd = nextTime.Sub(now)
+	return
 }
 
 // millRunOnce performs compression and removal of stale log files.
@@ -398,7 +389,7 @@ func (l *Logger) mill() {
 // oldLogFiles returns the list of backup log files stored in the same
 // directory as the current log file, sorted by ModTime
 func (l *Logger) oldLogFiles() ([]logInfo, error) {
-	files, err := ioutil.ReadDir(l.dir())
+	files, err := os.ReadDir(l.dir())
 	if err != nil {
 		return nil, fmt.Errorf("can't read log file directory: %s", err)
 	}
@@ -410,12 +401,13 @@ func (l *Logger) oldLogFiles() ([]logInfo, error) {
 		if f.IsDir() {
 			continue
 		}
+		fino, _ := f.Info()
 		if t, err := l.timeFromName(f.Name(), prefix, ext); err == nil {
-			logFiles = append(logFiles, logInfo{t, f})
+			logFiles = append(logFiles, logInfo{t, fino})
 			continue
 		}
 		if t, err := l.timeFromName(f.Name(), prefix, ext+compressSuffix); err == nil {
-			logFiles = append(logFiles, logInfo{t, f})
+			logFiles = append(logFiles, logInfo{t, fino})
 			continue
 		}
 		// error parsing means that the suffix at the end was not generated
@@ -439,14 +431,6 @@ func (l *Logger) timeFromName(filename, prefix, ext string) (time.Time, error) {
 	}
 	ts := filename[len(prefix) : len(filename)-len(ext)]
 	return time.Parse(backupTimeFormat, ts)
-}
-
-// max returns the maximum size in bytes of log files before rolling.
-func (l *Logger) max() int64 {
-	if l.MaxSize == 0 {
-		return int64(defaultMaxSize * megabyte)
-	}
-	return int64(l.MaxSize) * int64(megabyte)
 }
 
 // dir returns the directory for the current filename.

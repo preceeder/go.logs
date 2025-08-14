@@ -3,24 +3,29 @@ package logs
 import (
 	"context"
 	"github.com/preceeder/go.base"
-	"io"
 	"log/slog"
 )
 
 type MoreHandler struct {
-	TransparentTransmission bool // 日志是否往高等级传递 LevelErr(8) -> LevelWarn(4) -> LevelInfo(0) -> LevelDebug(-4)
-	MHandler                map[slog.Level]*slog.JSONHandler
-	MinLevel                slog.Level // 最小的 level    如果有 debug, info 最小的就是 info  	LevelDebug = -4 ,LevelInfo = 0 ,LevelWarn = 4 ,LevelError = 8
+	//TransparentTransmission bool // 日志是否往高等级传递 LevelErr(8) -> LevelWarn(4) -> LevelInfo(0) -> LevelDebug(-4)
+	MHandler []Config   // slog.Leve   从slog.Level 低到高排序
+	MinLevel slog.Level // 最小的 level    如果有 debug, info 最小的就是 info  	LevelDebug = -4 ,LevelInfo = 0 ,LevelWarn = 4 ,LevelError = 8
 }
 
-func NewMoreHandler(w map[slog.Level]io.Writer, minLevel slog.Level, transparentTransmission bool, opts *slog.HandlerOptions) *MoreHandler {
+func NewMoreHandler(w []Config, opts *slog.HandlerOptions) *MoreHandler {
 	if opts == nil {
 		opts = &slog.HandlerOptions{}
 	}
 
-	handler := MoreHandler{MinLevel: minLevel, MHandler: map[slog.Level]*slog.JSONHandler{}, TransparentTransmission: transparentTransmission}
-	for level, wl := range w {
-		handler.MHandler[level] = slog.NewJSONHandler(wl, opts)
+	minLevel := w[0].LogLevel
+	handler := MoreHandler{MinLevel: minLevel, MHandler: []Config{}}
+	for _, wl := range w {
+		if wl.OutType == "json" || wl.OutType == "" {
+			wl.l = slog.NewJSONHandler(wl.w, opts)
+		} else {
+			wl.l = slog.NewTextHandler(wl.w, opts)
+		}
+		handler.MHandler = append(handler.MHandler, wl)
 	}
 	return &handler
 }
@@ -45,26 +50,23 @@ func (h *MoreHandler) Handle(c context.Context, r slog.Record) error {
 		r.Add("REQUESTID", vc.GetRequestId())
 		r.Add("USERID", vc.GetUserId())
 	}
-	w := false
-	for level, handler := range h.MHandler {
-		if h.TransparentTransmission && r.Level >= level {
-			w = true
-			_ = handler.Handle(c, r)
-			continue
-		} else if level == r.Level {
-			w = true
-			_ = handler.Handle(c, r)
+	for _, handler := range h.MHandler {
+		if handler.LogLevel < r.Level {
 			continue
 		}
-	}
-	if !w {
-		return h.MHandler[h.MinLevel].Handle(c, r)
-	}
-	return nil
 
-	//if handler, ok := h.MHandler[r.Level]; ok {
-	//	return handler.Handle(c, r)
-	//} else {
-	//	return h.MHandler[h.MinLevel].Handle(c, r)
-	//}
+		if handler.LogLevel == r.Level {
+			_ = handler.l.Handle(c, r)
+			if handler.TransparentTransmission {
+				continue
+			}
+			break
+		}
+		_ = handler.l.Handle(c, r)
+		if !handler.TransparentTransmission {
+			break
+		}
+	}
+
+	return nil
 }
